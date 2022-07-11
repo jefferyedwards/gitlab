@@ -16,10 +16,10 @@ Create a ```docker-compose.yml``` file with the following content:
 version: '3.8'
 services:
   gitlab-ee:
-    image: 'gitlab/gitlab-ee:15.1.2-ee.0'
-    restart: unless-stopped
-    hostname: 'localhost'
     container_name: gitlab-ee
+    image: gitlab/gitlab-ee:14.10.5-ee.0
+    hostname: gitlab-ee
+    restart: unless-stopped
     environment:
       GITLAB_OMNIBUS_CONFIG: |
         external_url 'http://localhost'
@@ -33,8 +33,8 @@ services:
     networks:
       - gitlab
   gitlab-runner:
+    container_name: gitlab-runner
     image: gitlab/gitlab-runner:alpine
-    container_name: gitlab-runner    
     restart: unless-stopped
     depends_on:
       - gitlab-ee
@@ -80,8 +80,8 @@ Once launched, the GitLab and GitLab Runner Docker images are downloaded and ran
    ⠿ 10e0ed46598d Pull complete          5.9s
    ⠿ b7e27d159b54 Pull complete          6.0s
 [+] Running 3/3
- ⠿ Network gitlab-network  Created     0.3s
- ⠿ Container gitlab-ce       Started    33.0s
+ ⠿ Network gitlab-network    Created     0.3s
+ ⠿ Container gitlab-ee       Started    33.0s
  ⠿ Container gitlab-runner   Started     1.0s
 ```
 
@@ -91,15 +91,13 @@ $ docker exec -it gitlab-ee grep 'Password:' /etc/gitlab/initial_root_password
 ```
 
 ## GitLab portal
-The GitLab portal is available at: ```http: //localhost:8080```. After going to this address, the following screen should appear:
+The GitLab portal is available at: ```http://localhost:8080```. After going to this address, the following screen should appear:
 
 ![gitlab-sign-in](assets/gitlab-sign-in.png)
 
 **Note**: The first launch of the portal may take several minutes.
 
-To log in to the portal, enter ```root``` in ```Username``` field and the temporary password ```Password``` field.
-
-After logging in, the following screen should appear:
+To log in to the portal, enter ```root``` in ```Username``` field and the temporary password in the ```Password``` field. After logging in, the following screen should appear:
 
 ![gitlab-initial-login](assets/gitlab-initial-login.png)
 
@@ -122,7 +120,7 @@ The GitLab runner must be configured before it can be used in GitLab. Obtain a r
 In our case, the registration token value is ```xoHVbx11iGrSjqTzXcWc```.  This value is used in configuration of the runner during the registration process.  Registration is done from the console using the following command:
 
 ```
-$ docker exec -it gitlab-runner gitlab-runner register --url "http://gitlab-ce" --clone-url "http://gitlab-ce"
+$ docker exec -it gitlab-runner gitlab-runner register --url "http://gitlab-ee" --clone-url "http://gitlab-ee"
 ```
 
 As prompted, enter the following information:
@@ -140,7 +138,7 @@ In addition to the basic configuration, we also need to allow access for contain
 $ sudo vi ${GITLAB_HOME}/gitlab-runner/config.toml
 ```
 
-Add a new line to the end of the runner configuration file: ```network_mode = “gitlab-network”```.
+Add a new line to the end of the runner configuration file: ```network_mode = "gitlab-network"```.
 ```
 concurrent = 1
 check_interval = 0
@@ -168,7 +166,7 @@ check_interval = 0
     disable_cache = false
     volumes = ["/cache"]
     shm_size = 0
-    network_mode = “gitlab-network"
+    network_mode = "gitlab-network"
 ```
 
 After registration, the registered runner will be displayed in the portal address http://localhost:8080/admin/runners:
@@ -180,3 +178,83 @@ Create an example project by navigating to http://localhost:8080/projects/new an
 
 ![gitlab-import-project](assets/gitlab-import-project.png)
 
+On the ```Import project``` page, select ```Repo by URL```.  Enter https://github.com/jefferyedwards/helloworld in the ```Git repository URL``` text field.  This will import the existing ```helloworld``` project into our GitLab instance.
+
+![gitlab-import-project-2](assets/gitlab-import-project-2.png)
+
+After importing, the project will be displayed in list of available projects in the portal address http://localhost:8080/dashboard/projects:
+
+![gitlab-helloworld-project-1](assets/gitlab-helloworld-project-1.png)
+
+The ```helloworld``` project in GitLab:
+
+![gitlab-helloworld-project-2](assets/gitlab-helloworld-project-2.png)
+
+## Create the CI/CD pipeline
+To create a CI/CD pipeline for the project, click the ```main``` menu on the left, then ```CI/CD | Editor```.
+
+![gitlab-cicd-editor](assets/gitlab-cicd-editor.png)
+
+Select ```Configure pipeline``` to create a ```.gitlab-ci.yml``` file, which will contain our pipeline definitions, will appear on the screen.
+
+Enter the following in the pipeline editor text area:
+```
+image: maven:latest
+
+stages:
+  - build
+  - test
+
+build-job:
+  stage: build
+  script:
+    - echo "Compiling the code..."
+    - mvn clean package
+    - echo "Compile complete."
+  artifacts:
+    paths:
+    - target   
+
+test-job:
+  stage: test
+  dependencies: 
+    - build-job  
+  script:
+    - ls -al
+    - echo "Running tests"
+    - java -cp target/helloworld-1.0.0.jar net.edwardsonthe.HelloWorld
+```
+
+The above definition describes how the CI/CD process should work. The most important elements are:
+
+- **image**: docker image that we will use to build our project
+- **stages**: a list of our process steps
+- **build-job**: the first step in our process to build our project. Additionally, we save the artifacts for use in the next step
+- **test-job**: the second step to run our project
+
+Update the pipeline definition and confirm the changes by selecting ```Commit changes```:
+
+![gitlab-pipeline-definition](assets/gitlab-pipeline-definition.png)
+
+After a while, the task should be built and tested:
+
+![gitlab-pipeline-passed](assets/gitlab-pipeline-passed.png)
+
+The ```Jobs``` page reflects the jobs, in our case ```test-job``` and ```build-job```, along with their corresponding execution status.
+
+![gitlab-pipeline-jobs](assets/gitlab-pipeline-jobs.png)
+
+Logging from a given job can be viewed by selecting its name.  For example, the ```build-job``` logs:
+
+![gitlab-build-job-logs](assets/gitlab-build-job-logs.png)
+
+Congratulations! You have just created your first CI/CD job in GitLab!
+
+## Stopping the container
+The containers containing our service were launched with the switch causing the work in the background. If you want to stop the portal, execute the following command:
+```
+$ docker-compose down
+```
+
+## Summary
+This tutorial provides details on the configuration of GitLab with a single shared GitLab runner. The GITLAB_HOME environment variable defined the host path for persisting of GitLab service data.  Therefore, data is not deleted when the containers are stopped or removed.
