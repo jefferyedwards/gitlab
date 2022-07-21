@@ -253,7 +253,7 @@ Congratulations! You have just created your first CI/CD job in GitLab!
 ## Stopping the container
 The containers containing our service were launched with the switch causing the work in the background. If you want to stop the portal, execute the following command:
 ```
-$ docker-compose down
+$ docker compose down
 ```
 
 ## Summary
